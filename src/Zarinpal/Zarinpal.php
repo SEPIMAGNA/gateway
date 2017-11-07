@@ -136,10 +136,11 @@ class Zarinpal extends PortAbstract implements PortInterface
 		return $this;
 	}
 
-	/**
-	 * Sets callback url
-	 * @param $url
-	 */
+    /**
+     * Sets callback url
+     * @param $url
+     * @return $this|string
+     */
 	function setCallback($url)
 	{
 		$this->callbackUrl = $url;
@@ -158,13 +159,12 @@ class Zarinpal extends PortAbstract implements PortInterface
 		return $this->makeCallback($this->callbackUrl, ['transaction_id' => $this->transactionId()]);
 	}
 
-	/**
-	 * Send pay request to server
-	 *
-	 * @return void
-	 *
-	 * @throws ZarinpalException
-	 */
+    /**
+     * Send pay request to server
+     * @return void
+     * @throws ZarinpalException
+     * @throws \SoapFault
+     */
 	protected function sendPayRequest()
 	{
 		$this->newTransaction();
@@ -198,6 +198,46 @@ class Zarinpal extends PortAbstract implements PortInterface
 		$this->transactionSetRefId();
 	}
 
+    /**
+     * Send pay request with shared pay off to server
+     * @return void
+     * @throws ZarinpalException
+     * @throws \SoapFault
+     */
+    protected function sendPayRequestWithExtra()
+    {
+        $this->newTransaction();
+
+        $fields = array(
+            'MerchantID' => $this->config->get('gateway.zarinpal.merchant-id'),
+            'Amount' => $this->amount,
+            'CallbackURL' => $this->getCallback(),
+            'Description' => $this->description ? $this->description : $this->config->get('gateway.zarinpal.description', ''),
+            'Email' => $this->email ? $this->email :$this->config->get('gateway.zarinpal.email', ''),
+            'Mobile' => $this->mobileNumber ? $this->mobileNumber : $this->config->get('gateway.zarinpal.mobile', ''),
+            'AdditionalData' => $this->additionalData ? $this->additionalData : $this->config->get('gateway.zarinpal.additionalData', ''),
+        );
+
+        try {
+            $soap = new SoapClient($this->serverUrl);
+            $response = $soap->PaymentRequestWithExtra($fields);
+
+        } catch (\SoapFault $e) {
+            $this->transactionFailed();
+            $this->newLog('SoapFault', $e->getMessage());
+            throw $e;
+        }
+
+        if ($response->Status != 100) {
+            $this->transactionFailed();
+            $this->newLog($response->Status, ZarinpalException::$errors[$response->Status]);
+            throw new ZarinpalException($response->Status);
+        }
+
+        $this->refId = $response->Authority;
+        $this->transactionSetRefId();
+    }
+
 	/**
 	 * Check user payment with GET data
 	 *
@@ -219,13 +259,12 @@ class Zarinpal extends PortAbstract implements PortInterface
 		throw new ZarinpalException(-22);
 	}
 
-	/**
-	 * Verify user payment from zarinpal server
-	 *
-	 * @return bool
-	 *
-	 * @throws ZarinpalException
-	 */
+    /**
+     * Verify user payment from zarinpal server
+     * @return bool
+     * @throws ZarinpalException
+     * @throws \SoapFault
+     */
 	protected function verifyPayment()
 	{
 
